@@ -15,6 +15,7 @@ import random
 
 input_queue = Queue()
 finished_pow_queue = Queue()
+block_received = threading.Event()
 
 class CommunicationThread(threading.Thread):
     def __init__(self):
@@ -24,12 +25,18 @@ class CommunicationThread(threading.Thread):
 
     def run(self):
         while True:
+            # Receive already calculated block from socket tba
+
+            # finished_pow_queue.put(received_block)
+            # Wipe out all the records from current block that are already present in a received block tba
+            # block_received.set()
+
             # Receive a new record from socket tba
             self.block = create_record_for_block(self.block, "P.K. to najlepszy prowadzący")
             time.sleep(0.5)
             self.block = create_record_for_block(self.block, "P.K. to najgorszy prowadzący")
 
-            # sort by timestamp and change indices so that the oldest record is first and the newest last
+            # Sort by timestamp and change indices so that the oldest record is first and the newest last
             self.block['records'] = sorted(self.block['records'], key=lambda record: record['timestamp'])
             for i in range(len(self.block['records'])):
                 self.block['records'][i]['index'] = i + 1
@@ -48,6 +55,12 @@ class PowThread(threading.Thread):
     def run(self):
         # input hold curr block for which the pow is calculated at the moment
         while True:
+            # If different node calculated block then restart the calculations on a new block
+            if block_received.is_set():
+                self.running = False
+                self.block = None
+                block_received.clear()
+
             if not input_queue.empty():
                 print('POW: fethed a new record')
                 self.block = input_queue.get()
@@ -74,13 +87,13 @@ class IoThread(threading.Thread):
         threading.Thread.__init__(self)
 
     def run(self):
-        i = 1
         while True:
             if not finished_pow_queue.empty():
                 block = finished_pow_queue.get()
                 print('Calculated pow for this block:')
                 print(block)
                 add_block_to_chain(block, 1)
+                # Send calculated block to the other nodes via sockets tba
 
 
 class Node:
