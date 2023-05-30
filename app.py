@@ -11,7 +11,9 @@ import time
 from queue import Queue
 import sys
 import random
-
+import hashlib
+import json
+from datetime import datetime
 
 input_queue = Queue()
 finished_pow_queue = Queue()
@@ -51,6 +53,7 @@ class PowThread(threading.Thread):
         threading.Thread.__init__(self)
         self.running = False
         self.block = None
+        self.d = 1000
 
     def run(self):
         # input hold curr block for which the pow is calculated at the moment
@@ -68,10 +71,7 @@ class PowThread(threading.Thread):
 
             if self.running:
                 # Make attempt to calculate the pow
-                time.sleep(1)
-                n = random.random()
-                print('An attempt to calculate pow...')
-                if n < 0.1:
+                if self.pow_calc_attempt(self.block, self.d):
                     finished_pow_queue.put(self.block)
                     self.block = None
                     self.running = False
@@ -80,6 +80,28 @@ class PowThread(threading.Thread):
             elif not self.running and self.block != None:
                 # Check if there isnt another pow to calculate
                 self.running = True
+
+    def get_hash(self, data):
+        sha256_hash = hashlib.sha256()
+        sha256_hash.update(data)
+        digest = sha256_hash.digest()
+        return digest
+
+    def pow_calc_attempt(self, block, d):
+        block['timestamp'] = datetime.now().timestamp()
+        b = random.getrandbits(32)
+        b_hex = format(b, f'08x')
+        block['PoW'] = b_hex
+        data = json.dumps(block).encode('utf-8')
+
+        h_data = self.get_hash(data)
+        token = self.get_hash(h_data + bytes.fromhex(b_hex))
+        token_num = int.from_bytes(token, "big")
+
+        if token_num < ((2**256) / d):
+            return True
+
+        return False
 
 
 class IoThread(threading.Thread):
@@ -112,6 +134,15 @@ class Node:
         self.io_thread.join()
         self.pow_thread.join()
 
+def get_data_hash(block):
+    json_str = json.dumps(block, sort_keys=True)
+    json_bytes = json_str.encode('utf-8')
+    sha256_hash = hashlib.sha256()
+    sha256_hash.update(json_bytes)
+    digest = sha256_hash.digest()
+    hash_integer = int.from_bytes(digest, byteorder='big')
+
+    return hash_integer
 
 node = Node(0)
 node.run()
