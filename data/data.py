@@ -19,6 +19,9 @@ class Record(dict):
         }
         super().__init__(mapping)
 
+    def __eq__(self, other):
+        return self["timestamp"] == other["timestamp"] and self["content"] == other["content"]
+
 
 class Block(dict):
     def __init__(self, index: int):
@@ -33,16 +36,25 @@ class Block(dict):
         super().__init__(mapping)
 
     def add_new_record(self, content: str):
-        self["records"].append(Record(content))
+        r = Record(content)
+        self["records"].append(r)
         self["records"].sort(key=lambda x: x["timestamp"])
-        for i, r in enumerate(self["records"]):
-            r["index"] = i
+        j = 0
+        for i, r_ in enumerate(self["records"]):
+            r_["index"] = i
+            if r == r_:
+                j = i
+        return j 
 
     def add_record(self, r: Record):
         self["records"].append(r)
         self["records"].sort(key=lambda x: x["timestamp"])
-        for i, r in enumerate(self["records"]):
-            r["index"] = i
+        j = 0
+        for i, r_ in enumerate(self["records"]):
+            r_["index"] = i
+            if r == r_:
+                j = i
+        return j 
 
     def equals(self, r: Record):
         return self["timestamp"] == r["timestamp"] and self["content"] == r["content"]

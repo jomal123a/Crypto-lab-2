@@ -75,16 +75,20 @@ class CommunicationThread(threading.Thread):
             data = message[7:-1]
             if self.block["index"] == -1:
                 self.block = self.bc.get_new_block()
-            self.block.add_new_record(data)
+            j = self.block.add_new_record(data)
+            print(f"(block {self.bc.index + 1}, record {j})")
             input_queue.put(self.block)
         elif message.startswith("GET "):
-            eprint("COM: print record request")
+            eprint("COM: print block request")
             data = message[4:]
             try:
                 i = int(data)
-                print(json.dumps(self.bc.chain[i]))
+                print(json.dumps(self.bc.chain[i], indent=2))
             except:
                 eprint("incorrect block index")
+        elif message.startswith("GETALL"):
+            eprint("COM: print all blocks request")
+            print(json.dumps(self.bc.chain, indent=2))
         elif message.startswith("NOB"):
             eprint("COM: print number of blocks request")
             print(self.bc.index)
@@ -118,7 +122,7 @@ class PowThread(threading.Thread):
         threading.Thread.__init__(self)
         self.running = False
         self.block = Block(-1)
-        self.d = 100000
+        self.d = 1000000
 
     def run(self):
         # input hold curr block for which the pow is calculated at the moment
