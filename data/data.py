@@ -1,6 +1,13 @@
 from datetime import datetime
 from hashlib import sha256
 import json
+import sys
+
+
+def eprint(*args, **kwargs):
+    print('\033[93m', file=sys.stderr, end='')
+    print(*args, file=sys.stderr, **kwargs, end='')
+    print('\033[0m', file=sys.stderr)
 
 
 class Record(dict):
@@ -25,11 +32,20 @@ class Block(dict):
         }
         super().__init__(mapping)
 
-    def add_record(self, content: str):
+    def add_new_record(self, content: str):
         self["records"].append(Record(content))
         self["records"].sort(key=lambda x: x["timestamp"])
         for i, r in enumerate(self["records"]):
             r["index"] = i
+
+    def add_record(self, r: Record):
+        self["records"].append(r)
+        self["records"].sort(key=lambda x: x["timestamp"])
+        for i, r in enumerate(self["records"]):
+            r["index"] = i
+
+    def equals(self, r: Record):
+        return self["timestamp"] == r["timestamp"] and self["content"] == r["content"]
 
 
 class Blockchain():
@@ -42,7 +58,7 @@ class Blockchain():
 
     def to_json(self):
         return json.dumps(self.chain)
-    
+
     def extra_hashes(self, i: int):
         if i <= self.n:
             return [self.chain[j][1] for j in range(i - 1)]
@@ -62,18 +78,17 @@ class Blockchain():
         return [self.chain[j][1] for j in indices]
 
     def get_new_block(self):
-        self.index += 1
-        block = Block(self.index)
-        block["main_hash"] = self.chain[self.index - 1][1]
+        eprint(f"creating new block {self.index}")
+        block = Block(self.index + 1)
+        block["main_hash"] = self.chain[self.index][1]
         block["extra_hashes"] = self.extra_hashes(self.index)
-        self.chain[self.index] = [0,0]
-        self.chain[self.index][0] = block
-        self.chain[self.index][1] = sha256(json.dumps(block).encode('utf-8')).hexdigest()
         return block
 
-
-
-bc = Blockchain(5, 10)
-for i in range(20):
-    bc.get_new_block()
-print(json.dumps(bc.chain[1]))
+    def confirm_block(self, block: Block):
+        if self.index + 1 != block["index"]:
+            raise Exception(f"self.index = {self.index}")
+        self.index += 1
+        eprint(f"confirming block {self.index}")
+        self.chain[self.index] = [block, sha256(
+            json.dumps(block).encode('utf-8')).hexdigest()]
+        return Block(-1)

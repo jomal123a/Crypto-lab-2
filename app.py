@@ -1,145 +1,187 @@
-from json_utils import (
-    init_blockchain,
-    create_block,
-    create_record,
-    init_blockchain_from_neighbour,
-    create_record_for_block,
-    add_block_to_chain,
-)
+from datetime import datetime
 import threading
-import time
 from queue import Queue
 import sys
 import random
 import socket
 import select
 import re
+import hashlib
+import json
+from data import (
+    Blockchain,
+    Block,
+    eprint
+)
 
 
-input_queue = Queue()
-finished_pow_queue = Queue()
-block_received = threading.Event()
+input_queue: Queue[Block] = Queue()
+finished_pow_queue: Queue[Block] = Queue()
+pow_received = threading.Event()
 
 
 class CommunicationThread(threading.Thread):
-    def __init__(self, ip="127.0.0.1", port=8081):
+    def __init__(self, ip: str = "127.0.0.1", port: int = 8081, n: int = 10, t: int = 10):
         threading.Thread.__init__(self)
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.ip = ip
         self.port = port
         self.server.connect((self.ip, self.port))
         self.sockets_list = [sys.stdin, self.server]
+        self.bc = Blockchain(n, t)
+        self.block: Block = Block(-1)
 
     def process_from_server(self, message: str):
-        reg = re.compile(r'\<(\d+)\> ')
-        match = reg.search(message)
-        sender_id = int(match.group(1))
-        message = re.sub(reg, '', message)
+        # reg = re.compile(r'\<(\d+)\> ')
+        # match = reg.search(message)
+        # if match != None:
+        #     sender_id = int(match.group(1))
+        # else:
+        #     raise Exception("bad message")
+        # message = re.sub(reg, '', message)
         if message.startswith("RECORD "):
-            data = message[7:]
+            eprint("COM: record received from node")
+            data = message[7:-1]
+            if self.block["index"] == -1:
+                self.block = self.bc.get_new_block()
+            self.block.add_new_record(data)
+            input_queue.put(self.block)
+        elif message.startswith("PoW "):
+            eprint("COM: PoW received from node")
+            data = json.loads(message[4:])
+            index = data[0]["index"]
+            if self.bc.chain[index - 1][1] != data[0]["main_hash"]:
+                eprint("COM: FORK!!!")
+            else:
+                pow_received.set()
+                records = self.block["records"]
+                self.bc.chain[index] = data
+                self.bc.index = index
+                diff = len(records) - len(data[0]["records"])
+                if diff > 0:
+                    eprint("COM: adding leftover records to new block")
+                    records = records[-diff:]
+                    self.block = self.bc.get_new_block()
+                    for r in records:
+                        self.block.add_record(r)
+                    input_queue.put(self.block)
+                else:
+                    self.block = Block(-1)
+
+    def process_from_stdin(self, message: str):
+        if message.startswith("RECORD "):
+            eprint("COM: record received from user")
+            self.server.send(message.encode('utf-8'))
+            data = message[7:-1]
+            if self.block["index"] == -1:
+                self.block = self.bc.get_new_block()
+            self.block.add_new_record(data)
+            input_queue.put(self.block)
+        elif message.startswith("GET "):
+            eprint("COM: print record request")
+            data = message[4:]
+            try:
+                i = int(data)
+                print(json.dumps(self.bc.chain[i]))
+            except:
+                eprint("incorrect block index")
+        elif message.startswith("NOB"):
+            eprint("COM: print number of blocks request")
+            print(self.bc.index)
 
     def run(self):
         while True:
-            read_sockets, _, _ = select.select(self.sockets_list, [], [])
+            read_sockets, _, _ = select.select(self.sockets_list, [], [], 0.01)
 
             for socks in read_sockets:
                 if socks == self.server:
-                    message = socks.recv(2048).decode("utf8")
-                    print(message, end='')
+                    message = socks.recv(2048).decode("utf-8")
+                    self.process_from_server(message)
                 else:
-                    message = sys.stdin.readline().encode("utf8")
-                    if message != b'\n':
-                        self.server.send(message)
+                    message = sys.stdin.readline()
+                    if message != '\n':
+                        self.process_from_stdin(message)
             sys.stdout.flush()
 
-            # Receive already calculated block from socket tba
-
-            # finished_pow_queue.put(received_block)
-            # Wipe out all the records from current block that are already present in a received block tba
-            # block_received.set()
-
-            # Receive a new record from socket tba
-            self.block = create_record_for_block(
-                self.block, "P.K. to najlepszy prowadzący")
-            time.sleep(0.5)
-            self.block = create_record_for_block(
-                self.block, "P.K. to najgorszy prowadzący")
-
-            # Sort by timestamp and change indices so that the oldest record is first and the newest last
-            self.block['records'] = sorted(
-                self.block['records'], key=lambda record: record['timestamp'])
-            for i in range(len(self.block['records'])):
-                self.block['records'][i]['index'] = i + 1
-
-            # Send immediately to POW thread
-            input_queue.put(self.block)
-            break
+            if not finished_pow_queue.empty():
+                while not finished_pow_queue.empty():
+                    self.block = finished_pow_queue.get()
+                self.block = self.bc.confirm_block(self.block)
+                message = "PoW " + json.dumps(self.bc.chain[self.bc.index])
+                eprint("COM: sending PoW")
+                self.server.send((message+'\n').encode('utf-8'))
+            sys.stdout.flush()
 
 
 class PowThread(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
         self.running = False
-        self.block = None
+        self.block = Block(-1)
+        self.d = 100000
 
     def run(self):
         # input hold curr block for which the pow is calculated at the moment
         while True:
             # If different node calculated block then restart the calculations on a new block
-            if block_received.is_set():
+            if pow_received.is_set():
+                eprint("POW: PoW received from node")
                 self.running = False
-                self.block = None
-                block_received.clear()
+                self.block = Block(-1)
+                pow_received.clear()
 
             if not input_queue.empty():
-                print('POW: fethed a new record')
+                eprint('POW: fetched a new record')
                 self.block = input_queue.get()
                 self.running = False
 
             if self.running:
                 # Make attempt to calculate the pow
-                time.sleep(1)
-                n = random.random()
-                print('An attempt to calculate pow...')
-                if n < 0.1:
+                if self.pow_calc_attempt(self.block, self.d):
+                    eprint("POW: PoW calculated")
                     finished_pow_queue.put(self.block)
-                    self.block = None
+                    self.block = Block(-1)
                     self.running = False
                     # Replace curr block pow field with calculated pow
 
-            elif not self.running and self.block != None:
+            elif not self.running and self.block["index"] != -1:
                 # Check if there isnt another pow to calculate
                 self.running = True
 
+    def get_hash(self, data):
+        sha256_hash = hashlib.sha256()
+        sha256_hash.update(data)
+        digest = sha256_hash.digest()
+        return digest
 
-class IoThread(threading.Thread):
-    def __init__(self):
-        threading.Thread.__init__(self)
+    def pow_calc_attempt(self, block, d):
+        block['timestamp'] = datetime.now().timestamp()
+        b = random.getrandbits(32)
+        b_hex = format(b, f'08x')
+        block['PoW'] = b_hex
+        data = json.dumps(block).encode('utf-8')
 
-    def run(self):
-        while True:
-            if not finished_pow_queue.empty():
-                block = finished_pow_queue.get()
-                print('Calculated pow for this block:')
-                print(block)
-                add_block_to_chain(block, 1)
-                # Send calculated block to the other nodes via sockets tba
+        h_data = self.get_hash(data)
+        token = self.get_hash(h_data + bytes.fromhex(b_hex))
+        token_num = int.from_bytes(token, "big")
+
+        if token_num < ((2**256) / d):
+            return True
+
+        return False
 
 
 class Node:
     def __init__(self, id):
         self.id = id
         self.comm_thread = CommunicationThread()
-        self.io_thread = IoThread()
         self.pow_thread = PowThread()
 
     def run(self):
         self.comm_thread.start()
-        self.io_thread.start()
         self.pow_thread.start()
 
         self.comm_thread.join()
-        self.io_thread.join()
         self.pow_thread.join()
 
 

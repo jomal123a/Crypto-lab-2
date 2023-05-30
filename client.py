@@ -19,7 +19,7 @@ while True:
       message = socks.recv(2048).decode("utf8")
       print(message, end='')
     else:
-      message = sys.stdin.readline().encode("utf8")
-      if message != b'\n':
-        server.send(message)
+      message = sys.stdin.readline()
+      if message != '\n':
+        server.send(message.encode("utf8"))
   sys.stdout.flush()
