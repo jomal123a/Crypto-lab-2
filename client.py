@@ -9,8 +9,8 @@ port = 8081
 
 server.connect((ip, port))
 
+sockets_list = [sys.stdin, server]
 while True:
-  sockets_list = [sys.stdin, server]
 
   read_sockets, _, _ = select.select(sockets_list, [], [])
 
@@ -22,4 +22,4 @@ while True:
       message = sys.stdin.readline().encode("utf8")
       if message != b'\n':
         server.send(message)
-    sys.stdout.flush()
+  sys.stdout.flush()

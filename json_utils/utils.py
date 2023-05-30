@@ -22,6 +22,25 @@ FILE_NAME = "blockchain.json"
 class ValidationError(Exception):
     pass
 
+class Block(dict):
+    def __init__(self, index: int):
+        self.id = index
+        mapping = {
+            "index": index,
+            "main_hash": None,
+            "extra_hashes": [],
+            "b": None,
+            "timestamp": None,
+            "records": []
+        }
+        super.__init__(mapping)
+
+    def get_index(self):
+        return self["index"]
+    
+    def set_index(self, index: int):
+        self["index"] = index
+    
 
 def _validate_block(block: dict) -> bool:
     return all([key in block for key in BLOCK_FIELDS])

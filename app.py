@@ -11,20 +11,47 @@ import time
 from queue import Queue
 import sys
 import random
+import socket
+import select
+import re
 
 
 input_queue = Queue()
 finished_pow_queue = Queue()
 block_received = threading.Event()
 
+
 class CommunicationThread(threading.Thread):
-    def __init__(self):
+    def __init__(self, ip="127.0.0.1", port=8081):
         threading.Thread.__init__(self)
-        init_blockchain(1)
-        self.block_id, self.block = create_block(0, "aaa", ["bbb", "ccc"], 2137)
+        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.ip = ip
+        self.port = port
+        self.server.connect((self.ip, self.port))
+        self.sockets_list = [sys.stdin, self.server]
+
+    def process_from_server(self, message: str):
+        reg = re.compile(r'\<(\d+)\> ')
+        match = reg.search(message)
+        sender_id = int(match.group(1))
+        message = re.sub(reg, '', message)
+        if message.startswith("RECORD "):
+            data = message[7:]
 
     def run(self):
         while True:
+            read_sockets, _, _ = select.select(self.sockets_list, [], [])
+
+            for socks in read_sockets:
+                if socks == self.server:
+                    message = socks.recv(2048).decode("utf8")
+                    print(message, end='')
+                else:
+                    message = sys.stdin.readline().encode("utf8")
+                    if message != b'\n':
+                        self.server.send(message)
+            sys.stdout.flush()
+
             # Receive already calculated block from socket tba
 
             # finished_pow_queue.put(received_block)
@@ -32,12 +59,15 @@ class CommunicationThread(threading.Thread):
             # block_received.set()
 
             # Receive a new record from socket tba
-            self.block = create_record_for_block(self.block, "P.K. to najlepszy prowadzący")
+            self.block = create_record_for_block(
+                self.block, "P.K. to najlepszy prowadzący")
             time.sleep(0.5)
-            self.block = create_record_for_block(self.block, "P.K. to najgorszy prowadzący")
+            self.block = create_record_for_block(
+                self.block, "P.K. to najgorszy prowadzący")
 
             # Sort by timestamp and change indices so that the oldest record is first and the newest last
-            self.block['records'] = sorted(self.block['records'], key=lambda record: record['timestamp'])
+            self.block['records'] = sorted(
+                self.block['records'], key=lambda record: record['timestamp'])
             for i in range(len(self.block['records'])):
                 self.block['records'][i]['index'] = i + 1
 
