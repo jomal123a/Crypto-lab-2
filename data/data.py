@@ -72,7 +72,7 @@ class Blockchain():
         return json.dumps(self.chain)
 
     def extra_hashes(self, i: int):
-        if i <= self.n:
+        if i <= self.n + 1:
             return [self.chain[j][1] for j in range(i - 1)]
         xs = [self.chain[i - 1][1]]
         for j in range(1, self.n):
@@ -93,12 +93,12 @@ class Blockchain():
         eprint(f"creating new block {self.index}")
         block = Block(self.index + 1)
         block["main_hash"] = self.chain[self.index][1]
-        block["extra_hashes"] = self.extra_hashes(self.index)
+        block["extra_hashes"] = self.extra_hashes(self.index + 1)
         return block
 
     def confirm_block(self, block: Block):
         if self.index + 1 != block["index"]:
-            raise Exception(f"self.index = {self.index}")
+            return Block(-2)
         self.index += 1
         eprint(f"confirming block {self.index}")
         self.chain[self.index] = [block, sha256(

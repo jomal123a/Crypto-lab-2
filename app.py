@@ -1,3 +1,4 @@
+#!/bin/python
 from datetime import datetime
 import threading
 from queue import Queue
@@ -5,6 +6,7 @@ import sys
 import random
 import socket
 import select
+import io
 import re
 import hashlib
 import json
@@ -21,7 +23,7 @@ pow_received = threading.Event()
 
 
 class CommunicationThread(threading.Thread):
-    def __init__(self, ip: str = "127.0.0.1", port: int = 8081, n: int = 10, t: int = 10):
+    def __init__(self, ip: str = "127.0.0.1", port: int = 8081, n: int = 5, t: int = 10):
         threading.Thread.__init__(self)
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.ip = ip
@@ -50,23 +52,26 @@ class CommunicationThread(threading.Thread):
             eprint("COM: PoW received from node")
             data = json.loads(message[4:])
             index = data[0]["index"]
-            if self.bc.chain[index - 1][1] != data[0]["main_hash"]:
+            if self.bc.index >= index:
                 eprint("COM: FORK!!!")
+                if self.bc.chain[self.bc.index][0]["timestamp"] < data[0]["timestamp"]:
+                    return
+            # if self.bc.chain[index - 1][1] != data[0]["main_hash"]:
+                # eprint("COM: FORK!!!")
+            pow_received.set()
+            records = self.block["records"]
+            self.bc.chain[index] = data
+            self.bc.index = index
+            diff = len(records) - len(data[0]["records"])
+            if diff > 0:
+                eprint("COM: adding leftover records to new block")
+                records = records[-diff:]
+                self.block = self.bc.get_new_block()
+                for r in records:
+                    self.block.add_record(r)
+                input_queue.put(self.block)
             else:
-                pow_received.set()
-                records = self.block["records"]
-                self.bc.chain[index] = data
-                self.bc.index = index
-                diff = len(records) - len(data[0]["records"])
-                if diff > 0:
-                    eprint("COM: adding leftover records to new block")
-                    records = records[-diff:]
-                    self.block = self.bc.get_new_block()
-                    for r in records:
-                        self.block.add_record(r)
-                    input_queue.put(self.block)
-                else:
-                    self.block = Block(-1)
+                self.block = Block(-1)
 
     def process_from_stdin(self, message: str):
         if message.startswith("RECORD "):
@@ -86,6 +91,11 @@ class CommunicationThread(threading.Thread):
                 print(json.dumps(self.bc.chain[i], indent=2))
             except:
                 eprint("incorrect block index")
+        elif message.startswith("GETALL "):
+            eprint("COM: print all blocks to file request")
+            path = message[7:-1]
+            with io.open(path, 'w', encoding='utf-8') as f:
+                f.write(json.dumps(self.bc.chain, indent=2))
         elif message.startswith("GETALL"):
             eprint("COM: print all blocks request")
             print(json.dumps(self.bc.chain, indent=2))
@@ -111,9 +121,12 @@ class CommunicationThread(threading.Thread):
                 while not finished_pow_queue.empty():
                     self.block = finished_pow_queue.get()
                 self.block = self.bc.confirm_block(self.block)
-                message = "PoW " + json.dumps(self.bc.chain[self.bc.index])
-                eprint("COM: sending PoW")
-                self.server.send((message+'\n').encode('utf-8'))
+                if self.block["index"] == -1:
+                    message = "PoW " + json.dumps(self.bc.chain[self.bc.index])
+                    eprint("COM: sending PoW")
+                    self.server.send((message+'\n').encode('utf-8'))
+                else:
+                    self.block = Block(-1)
             sys.stdout.flush()
 
 
@@ -122,7 +135,8 @@ class PowThread(threading.Thread):
         threading.Thread.__init__(self)
         self.running = False
         self.block = Block(-1)
-        self.d = 1000000
+        # self.d = 2000000
+        self.d = 2000
 
     def run(self):
         # input hold curr block for which the pow is calculated at the moment
