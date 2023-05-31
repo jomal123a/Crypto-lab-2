@@ -61,9 +61,8 @@ class Block(dict):
 
 
 class Blockchain():
-    def __init__(self, n: int, t: int):
+    def __init__(self, n: int):
         self.n = n
-        self.t = t
         self.index = 0
         self.chain = {0: [Block(0), '0']}
         self.chain[0][0]["timestamp"] = datetime.now().timestamp()
@@ -90,7 +89,7 @@ class Blockchain():
         return [self.chain[j][1] for j in indices]
 
     def get_new_block(self):
-        eprint(f"creating new block {self.index}")
+        eprint(f"creating new block {self.index + 1}")
         block = Block(self.index + 1)
         block["main_hash"] = self.chain[self.index][1]
         block["extra_hashes"] = self.extra_hashes(self.index + 1)

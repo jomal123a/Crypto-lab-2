@@ -20,6 +20,10 @@ def clientthread(conn, my_id):
       message = conn.recv(2048).decode("utf8")
       if message and message != '\n':
         print("<" + str(my_id) + "> " + message, end='')
+        if message.startswith("record "):
+          message = "===record=== " + message[7:]
+        elif message.startswith("PoW "):
+          message = "===PoW=== " + message[4:]
         broadcast(message.encode("utf8"), conn)
       else:
         remove(conn, my_id)
