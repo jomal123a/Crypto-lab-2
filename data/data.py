@@ -90,7 +90,7 @@ class Blockchain():
             except:
                 indices.append(n_)
             module += 1
-        return [self.chain[j][1] for j in indices]
+        return [(j, self.chain[j][1]) for j in indices]
 
     def get_new_block(self):
         eprint(f"creating new block {self.index + 1}")
