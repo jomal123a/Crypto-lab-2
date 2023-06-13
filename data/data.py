@@ -24,16 +24,20 @@ class Record(dict):
 
 
 class Block(dict):
-    def __init__(self, index: int):
-        mapping = {
-            "index": index,
-            "main_hash": None,
-            "extra_hashes": [],
-            "PoW": None,
-            "timestamp": None,
-            "records": []
-        }
-        super().__init__(mapping)
+    def __init__(self, index: int = 0, mapp: dict = {}):
+        if not mapp:
+            mapping = {
+                "index": index,
+                "main_hash": None,
+                "extra_hashes": [],
+                "PoW": None,
+                "timestamp": None,
+                "records": []
+            }
+            super().__init__(mapping)
+        else:
+            super().__init__(mapp)
+        
 
     def add_new_record(self, content: str):
         r = Record(content)

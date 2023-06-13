@@ -17,13 +17,43 @@ from data import (
 )
 
 
+def get_hash(data):
+        sha256_hash = hashlib.sha256()
+        sha256_hash.update(data)
+        digest = sha256_hash.digest()
+        return digest
+
+def pow_calc_attempt(block, d):
+    block['timestamp'] = datetime.now().timestamp()
+    b = random.getrandbits(32)
+    b_hex = format(b, f'08x')
+    block['PoW'] = b_hex
+    data = json.dumps(block).encode('utf-8')
+
+    h_data = get_hash(data)
+    token = get_hash(h_data + bytes.fromhex(b_hex))
+    token_num = int.from_bytes(token, "big")
+
+    if token_num < ((2**256) / d):
+        return True
+    return False
+
+def pow_check(block, d):
+    data = json.dumps(block).encode('utf-8')
+    h_data = get_hash(data)
+    token = get_hash(h_data + bytes.fromhex(block["PoW"]))
+    token_num = int.from_bytes(token, "big")
+
+    if token_num < ((2**256) / d):
+        return True
+    return False
+
 input_queue: Queue[Block] = Queue()
 finished_pow_queue: Queue[Block] = Queue()
 pow_received = threading.Event()
 
-
 class CommunicationThread(threading.Thread):
-    def __init__(self, ip: str = "127.0.0.1", port: int = 8081, n: int = 5):
+    def __init__(self, ip: str = "127.0.0.1", port: int = 8081, n: int = 5, d: int = 2000000, test: int = 0):
         threading.Thread.__init__(self)
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.ip = ip
@@ -32,6 +62,8 @@ class CommunicationThread(threading.Thread):
         self.sockets_list = [sys.stdin, self.server]
         self.bc = Blockchain(n)
         self.block: Block = Block(-1)
+        self.d = d
+        self.test = test
 
     def process_from_server(self, message: str):
         r = re.sub(r'\n', ' ', message)
@@ -52,6 +84,11 @@ class CommunicationThread(threading.Thread):
                 eprint("COM: PoW received from node")
                 i += 1
                 data = json.loads(m[i].strip())
+                b = Block(mapp=data[0])
+                if not pow_check(b, self.d):
+                    eprint("COM: PoW failed validation")
+                    continue
+                eprint("COM: PoW passed validation")
                 index = data[0]["index"]
                 if self.bc.index >= index:
                     eprint("COM: FORK!!!")
@@ -119,6 +156,13 @@ class CommunicationThread(threading.Thread):
                         self.process_from_stdin(message)
             sys.stdout.flush()
 
+            if self.test > 0:
+                self.process_from_stdin("record 0\n")
+                sys.stdout.flush()
+                self.test -= 1
+                while finished_pow_queue.empty():
+                    pass
+
             if not finished_pow_queue.empty():
                 while not finished_pow_queue.empty():
                     self.block = finished_pow_queue.get()
@@ -133,12 +177,11 @@ class CommunicationThread(threading.Thread):
 
 
 class PowThread(threading.Thread):
-    def __init__(self, t: int = 10, s: int = 200000):
+    def __init__(self, d: int = 2000000):
         threading.Thread.__init__(self)
         self.running = False
         self.block = Block(-1)
-        # self.d = 2000
-        self.d = t * s
+        self.d = d
 
     def run(self):
         # input hold curr block for which the pow is calculated at the moment
@@ -157,7 +200,7 @@ class PowThread(threading.Thread):
 
             if self.running:
                 # Make attempt to calculate the pow
-                if self.pow_calc_attempt(self.block, self.d):
+                if pow_calc_attempt(self.block, self.d):
                     eprint("POW: PoW calculated")
                     finished_pow_queue.put(self.block)
                     self.block = Block(-1)
@@ -168,35 +211,20 @@ class PowThread(threading.Thread):
                 # Check if there isnt another pow to calculate
                 self.running = True
 
-    def get_hash(self, data):
-        sha256_hash = hashlib.sha256()
-        sha256_hash.update(data)
-        digest = sha256_hash.digest()
-        return digest
-
-    def pow_calc_attempt(self, block, d):
-        block['timestamp'] = datetime.now().timestamp()
-        b = random.getrandbits(32)
-        b_hex = format(b, f'08x')
-        block['PoW'] = b_hex
-        data = json.dumps(block).encode('utf-8')
-
-        h_data = self.get_hash(data)
-        token = self.get_hash(h_data + bytes.fromhex(b_hex))
-        token_num = int.from_bytes(token, "big")
-
-        if token_num < ((2**256) / d):
-            return True
-
-        return False
-
 
 class Node:
     def __init__(self, id):
         self.id = id
         if len(sys.argv) > 1:
-            self.comm_thread = CommunicationThread(n=int(sys.argv[1]))
-            self.pow_thread = PowThread(t=int(sys.argv[2]), s=int(sys.argv[3]))
+            if sys.argv[2] == "test":
+                self.comm_thread = CommunicationThread(n=int(sys.argv[1]), d=1000, test=int(sys.argv[3]))
+                self.pow_thread = PowThread(d=1000)
+            else:
+                t=int(sys.argv[2])
+                s=int(sys.argv[3])
+                d = t * s
+                self.comm_thread = CommunicationThread(n=int(sys.argv[1]), d=d)
+                self.pow_thread = PowThread(d=d)
         else:
             self.comm_thread = CommunicationThread()
             self.pow_thread = PowThread()
