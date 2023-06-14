@@ -2,12 +2,14 @@ from datetime import datetime
 from hashlib import sha256
 import json
 import sys
+from math import sqrt, ceil
+import numpy.random as rand
 
-
-def eprint(*args, **kwargs):
-    print('\033[93m', file=sys.stderr, end='')
-    print(*args, file=sys.stderr, **kwargs, end='')
-    print('\033[0m', file=sys.stderr)
+def eprint(v: bool = True, *args, **kwargs):
+    if v:
+        print('\033[93m', file=sys.stderr, end='')
+        print(*args, file=sys.stderr, **kwargs, end='')
+        print('\033[0m', file=sys.stderr)
 
 
 class Record(dict):
@@ -63,6 +65,13 @@ class Block(dict):
     def equals(self, r: Record):
         return self["timestamp"] == r["timestamp"] and self["content"] == r["content"]
 
+def harm(n, k):
+    if n == 0:
+        return 0.0
+    h = 1.0
+    for i in range(2, n + 1):
+        h += 1 / pow(i, k)
+    return h
 
 class Blockchain():
     def __init__(self, n: int):
@@ -76,7 +85,23 @@ class Blockchain():
 
     def extra_hashes(self, i: int):
         if i <= self.n + 1:
-            return [self.chain[j][1] for j in range(i - 1)]
+            return [(j, self.chain[j][1]) for j in range(i - 1)]
+        
+        xs = [self.chain[i - 1][1]]
+
+        for j in range(1, self.n):
+            xs.append(sha256((xs[j - 1] + str(j)).encode('utf-8')).hexdigest())
+        
+        rand.seed(sum(map(lambda x: int(x, 16), xs)) % 2 ** 32)
+        # nn = ceil(sqrt(self.n))
+        dist = [1/(pow(i - j, self.n) * harm(i - 1, self.n)) for j in range(1, i)]
+        indices = rand.choice(range(i - 1), size=self.n, replace=False, p=dist)
+
+        return [(int(j), self.chain[j][1]) for j in indices]
+    
+    def extra_hashes_old(self, i: int):
+        if i <= self.n + 1:
+            return [(j, self.chain[j][1]) for j in range(i - 1)]
         xs = [self.chain[i - 1][1]]
         for j in range(1, self.n):
             xs.append(sha256((xs[j - 1] + str(j)).encode('utf-8')).hexdigest())
@@ -92,18 +117,18 @@ class Blockchain():
             module += 1
         return [(j, self.chain[j][1]) for j in indices]
 
-    def get_new_block(self):
-        eprint(f"creating new block {self.index + 1}")
+    def get_new_block(self, v: bool = True):
+        eprint(v, f"creating new block {self.index + 1}")
         block = Block(self.index + 1)
         block["main_hash"] = self.chain[self.index][1]
         block["extra_hashes"] = self.extra_hashes(self.index + 1)
         return block
 
-    def confirm_block(self, block: Block):
+    def confirm_block(self, block: Block, v: bool = True):
         if self.index + 1 != block["index"]:
             return Block(-2)
         self.index += 1
-        eprint(f"confirming block {self.index}")
+        eprint(v, f"confirming block {self.index}")
         self.chain[self.index] = [block, sha256(
             json.dumps(block).encode('utf-8')).hexdigest()]
         return Block(-1)

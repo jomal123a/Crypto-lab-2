@@ -10,6 +10,7 @@ import io
 import re
 import hashlib
 import json
+import os
 from data import (
     Blockchain,
     Block,
@@ -18,10 +19,11 @@ from data import (
 
 
 def get_hash(data):
-        sha256_hash = hashlib.sha256()
-        sha256_hash.update(data)
-        digest = sha256_hash.digest()
-        return digest
+    sha256_hash = hashlib.sha256()
+    sha256_hash.update(data)
+    digest = sha256_hash.digest()
+    return digest
+
 
 def pow_calc_attempt(block, d):
     block['timestamp'] = datetime.now().timestamp()
@@ -38,6 +40,7 @@ def pow_calc_attempt(block, d):
         return True
     return False
 
+
 def pow_check(block, d):
     data = json.dumps(block).encode('utf-8')
     h_data = get_hash(data)
@@ -48,12 +51,14 @@ def pow_check(block, d):
         return True
     return False
 
+
 input_queue: Queue[Block] = Queue()
 finished_pow_queue: Queue[Block] = Queue()
 pow_received = threading.Event()
 
+
 class CommunicationThread(threading.Thread):
-    def __init__(self, ip: str = "127.0.0.1", port: int = 8081, n: int = 5, d: int = 2000000, test: int = 0):
+    def __init__(self, ip: str = "127.0.0.1", port: int = 8081, n: int = 5, d: int = 2000000, test: int = 0, r: int = 0, v: bool = True):
         threading.Thread.__init__(self)
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.ip = ip
@@ -63,7 +68,11 @@ class CommunicationThread(threading.Thread):
         self.bc = Blockchain(n)
         self.block: Block = Block(-1)
         self.d = d
+        self.n = n
         self.test = test
+        self.ongoing_test = test
+        self.r = r
+        self.v = v
 
     def process_from_server(self, message: str):
         r = re.sub(r'\n', ' ', message)
@@ -73,25 +82,25 @@ class CommunicationThread(threading.Thread):
         for i in range(len(m)):
             command = m[i]
             if command.startswith("===record==="):
-                eprint("COM: record received from node")
+                eprint(self.v, "COM: record received from node")
                 i += 1
                 data = m[i].strip()
                 if self.block["index"] == -1:
-                    self.block = self.bc.get_new_block()
+                    self.block = self.bc.get_new_block(v=self.v)
                 self.block.add_new_record(data)
                 input_queue.put(self.block)
             elif command.startswith("===PoW==="):
-                eprint("COM: PoW received from node")
+                eprint(self.v, "COM: PoW received from node")
                 i += 1
                 data = json.loads(m[i].strip())
                 b = Block(mapp=data[0])
                 if not pow_check(b, self.d):
-                    eprint("COM: PoW failed validation")
+                    eprint(self.v, "COM: PoW failed validation")
                     continue
-                eprint("COM: PoW passed validation")
+                eprint(self.v, "COM: PoW passed validation")
                 index = data[0]["index"]
                 if self.bc.index >= index:
-                    eprint("COM: FORK!!!")
+                    eprint(self.v, "COM: FORK!!!")
                     if self.bc.chain[self.bc.index][0]["timestamp"] < data[0]["timestamp"]:
                         return
                 # if self.bc.chain[index - 1][1] != data[0]["main_hash"]:
@@ -102,9 +111,9 @@ class CommunicationThread(threading.Thread):
                 self.bc.index = index
                 diff = len(records) - len(data[0]["records"])
                 if diff > 0:
-                    eprint("COM: adding leftover records to new block")
+                    eprint(self.v, "COM: adding leftover records to new block")
                     records = records[-diff:]
-                    self.block = self.bc.get_new_block()
+                    self.block = self.bc.get_new_block(v=self.v)
                     for r in records:
                         self.block.add_record(r)
                     input_queue.put(self.block)
@@ -113,38 +122,41 @@ class CommunicationThread(threading.Thread):
 
     def process_from_stdin(self, message: str):
         if message.startswith("record "):
-            eprint("COM: record received from user")
+            eprint(self.v, "COM: record received from user")
             self.server.send(message.encode('utf-8'))
             data = message[7:-1]
             if data != '':
                 if self.block["index"] == -1:
-                    self.block = self.bc.get_new_block()
+                    self.block = self.bc.get_new_block(v=self.v)
                 j = self.block.add_new_record(data)
-                print(f"(block {self.bc.index + 1}, record {j})")
+                if self.v:
+                    print(f"(block {self.bc.index + 1}, record {j})")
                 input_queue.put(self.block)
         elif message.startswith("get "):
-            eprint("COM: print block request")
+            eprint(self.v, "COM: print block request")
             data = message[4:]
             try:
                 i = int(data)
                 print(json.dumps(self.bc.chain[i], indent=2))
             except:
-                eprint("incorrect block index")
+                eprint(self.v, "incorrect block index")
         elif message.startswith("getall "):
-            eprint("COM: print all blocks to file request")
+            eprint(self.v, "COM: print all blocks to file request")
             path = message[7:-1]
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             with io.open(path, 'w', encoding='utf-8') as f:
                 f.write(json.dumps(self.bc.chain, indent=2))
         elif message.startswith("getall"):
-            eprint("COM: print all blocks request")
+            eprint(self.v, "COM: print all blocks request")
             print(json.dumps(self.bc.chain, indent=2))
         elif message.startswith("size"):
-            eprint("COM: print number of blocks request")
+            eprint(self.v, "COM: print number of blocks request")
             print(self.bc.index)
 
     def run(self):
         while True:
-            read_sockets, _, _ = select.select(self.sockets_list, [], [], 0.001)
+            read_sockets, _, _ = select.select(
+                self.sockets_list, [], [], 0.001)
 
             for socks in read_sockets:
                 if socks == self.server:
@@ -156,52 +168,61 @@ class CommunicationThread(threading.Thread):
                         self.process_from_stdin(message)
             sys.stdout.flush()
 
-            if self.test > 0:
-                self.process_from_stdin("record 0\n")
-                sys.stdout.flush()
-                self.test -= 1
-                while finished_pow_queue.empty():
-                    pass
+            if self.r > 0:
+                if self.ongoing_test > 0:
+                    self.process_from_stdin("record 0\n")
+                    sys.stdout.flush()
+                    self.ongoing_test -= 1
+                    while finished_pow_queue.empty():
+                        pass
+                else:
+                    self.process_from_stdin(
+                        f"getall bc/{self.test}_{self.n}/{self.r}.json\n")
+                    self.r -= 1
+                    self.ongoing_test = self.test
+                    self.bc = Blockchain(self.n)
+                    print(f"{self.r}")
 
             if not finished_pow_queue.empty():
                 while not finished_pow_queue.empty():
                     self.block = finished_pow_queue.get()
-                self.block = self.bc.confirm_block(self.block)
+                self.block = self.bc.confirm_block(self.block, v=self.v)
                 if self.block["index"] == -1:
                     message = "PoW " + json.dumps(self.bc.chain[self.bc.index])
-                    eprint("COM: sending PoW")
-                    self.server.send((message+'\n').encode('utf-8'))
+                    eprint(self.v, "COM: sending PoW")
+                    self.server.send((message + '\n').encode('utf-8'))
                 else:
                     self.block = Block(-1)
             sys.stdout.flush()
 
 
 class PowThread(threading.Thread):
-    def __init__(self, d: int = 2000000):
+    def __init__(self, d: int = 2000000, v: bool = True):
         threading.Thread.__init__(self)
         self.running = False
         self.block = Block(-1)
         self.d = d
+        self.v = v
 
     def run(self):
         # input hold curr block for which the pow is calculated at the moment
         while True:
             # If different node calculated block then restart the calculations on a new block
             if pow_received.is_set():
-                eprint("POW: PoW received from node")
+                eprint(self.v, "POW: PoW received from node")
                 self.running = False
                 self.block = Block(-1)
                 pow_received.clear()
 
             if not input_queue.empty():
-                eprint('POW: fetched a new record')
+                eprint(self.v, 'POW: fetched a new record')
                 self.block = input_queue.get()
                 self.running = False
 
             if self.running:
                 # Make attempt to calculate the pow
                 if pow_calc_attempt(self.block, self.d):
-                    eprint("POW: PoW calculated")
+                    eprint(self.v, "POW: PoW calculated")
                     finished_pow_queue.put(self.block)
                     self.block = Block(-1)
                     self.running = False
@@ -217,11 +238,12 @@ class Node:
         self.id = id
         if len(sys.argv) > 1:
             if sys.argv[2] == "test":
-                self.comm_thread = CommunicationThread(n=int(sys.argv[1]), d=1000, test=int(sys.argv[3]))
-                self.pow_thread = PowThread(d=1000)
+                self.comm_thread = CommunicationThread(
+                    n=int(sys.argv[1]), d=1, test=int(sys.argv[3]), r=int(sys.argv[4]), v=False)
+                self.pow_thread = PowThread(d=1, v=False)
             else:
-                t=int(sys.argv[2])
-                s=int(sys.argv[3])
+                t = int(sys.argv[2])
+                s = int(sys.argv[3])
                 d = t * s
                 self.comm_thread = CommunicationThread(n=int(sys.argv[1]), d=d)
                 self.pow_thread = PowThread(d=d)
