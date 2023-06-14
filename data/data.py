@@ -93,8 +93,7 @@ class Blockchain():
             xs.append(sha256((xs[j - 1] + str(j)).encode('utf-8')).hexdigest())
         
         rand.seed(sum(map(lambda x: int(x, 16), xs)) % 2 ** 32)
-        # nn = ceil(sqrt(self.n))
-        dist = [1/(pow(i - j, self.n) * harm(i - 1, self.n)) for j in range(1, i)]
+        dist = [1/(pow(i - j - 1, self.n) * harm(i, self.n)) for j in range(0, i - 1)]
         indices = rand.choice(range(i - 1), size=self.n, replace=False, p=dist)
 
         return [(int(j), self.chain[j][1]) for j in indices]
