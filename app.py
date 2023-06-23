@@ -52,8 +52,8 @@ def pow_check(block, d):
     return False
 
 
-input_queue: Queue[Block] = Queue()
-finished_pow_queue: Queue[Block] = Queue()
+input_queue: 'Queue[Block]' = Queue()
+finished_pow_queue: 'Queue[Block]' = Queue()
 pow_received = threading.Event()
 
 
