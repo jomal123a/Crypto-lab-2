@@ -45,6 +45,22 @@ trans_copy.from_dict(trans_dict)
 print("-------------------------------")
 print(trans_copy.to_dict())
 
+t_pk = wallet_t[0]
+sign = sign(b'message to sign', t_pk)
+print(sign.hex())
+print(len(sign.hex()))
+print(len(b'719545b2c716fc0890af3b2661a540f1c7d0a9e60f554887afc9d8cbadbf1957'))
+print("-------------------------------")
+
+bc = Blockchain(0)
+block = bc.get_new_block()
+status = False
+while not status:
+    status = pow_calc_attempt(block, 20, wallet_r[1], wallet_r[0], wallet_t[1])
+
+print('pow calculated')
+
+
 
 
     

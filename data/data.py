@@ -13,7 +13,7 @@ def eprint(v: bool = True, *args, **kwargs):
 
 
 class Record(dict):
-    def __init__(self, content: str):
+    def __init__(self, content):
         mapping = {
             "index": None,
             "timestamp": datetime.now().timestamp(),
@@ -41,7 +41,22 @@ class Block(dict):
             super().__init__(mapp)
         
 
-    def add_new_record(self, content: str):
+    def add_new_record(self, content):
+        r = Record(content)
+        self["records"].append(r)
+        self["records"].sort(key=lambda x: x["timestamp"])
+        j = 0
+        for i, r_ in enumerate(self["records"]):
+            r_["index"] = i
+            if r == r_:
+                j = i
+        return j 
+    
+    def add_new_prize_record(self, content):        
+        for i, r_ in enumerate(self["records"]):
+            if r_['content']['tx'] == "SERVER":
+                del self["records"][i]
+
         r = Record(content)
         self["records"].append(r)
         self["records"].sort(key=lambda x: x["timestamp"])
