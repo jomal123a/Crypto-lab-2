@@ -24,6 +24,6 @@ if action == "t":
     t_dict = t.to_dict(to_str=True)
     print(t_dict)
 
-    server.send(f"record {json.dumps(t_dict).encode('utf-8')}")
+    server.send(f"record {json.dumps(t_dict)}".encode('utf-8'))
     
     # server.send(f"record {{\"tx\": {t_dict['tx']}, \"rx\": {t_dict['rx']}, \"ammount\": {t_dict['ammount']}, \"t_balance\": 0, \"signature\": {t_dict['signature']}}}".encode('utf-8'))
