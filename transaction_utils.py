@@ -3,6 +3,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import serialization
 from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
 import json
 import string
 import hashlib
@@ -139,18 +140,46 @@ def generate_rsa_key_pair():
     return (private_key, public_key)
 
 
+def save_key(pk: rsa.RSAPrivateKey, filename):
+    pem = pk.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+    with open(filename, 'wb') as pem_out:
+        pem_out.write(pem)
+
+
+
+def load_key(filename):
+    with open(filename, 'rb') as pem_in:
+        pemlines = pem_in.read()
+    private_key = load_pem_private_key(pemlines, None)
+    return private_key
+
+
 class Transaction:
     def __init__(self, 
                  tx: rsa.RSAPublicKey = None, 
                  rx: rsa.RSAPublicKey = None, 
                  ammount: float = 0.0,
                  t_balance: float = 0.0,
-                 from_server: bool = False):
+                 from_server: bool = False,
+                 signature: bytes = None):
         self.tx = tx
         self.rx = rx
         self.ammount = ammount
         self.t_balance = t_balance
         self.from_server = from_server
+        self.signature = signature
+
+    def calc_signature(self, sk: rsa.RSAPrivateKey):
+        data = self.to_dict(to_str=True)
+        del data['t_balance']
+        del data['signature']
+        data_json = json.dumps(data).encode('utf-8')
+        signature = sign(data_json, sk)
+        return signature
 
     def to_dict(self, to_str=False):
         if self.from_server:
@@ -162,7 +191,8 @@ class Transaction:
         trans = {"tx": tx_bytes if not to_str else tx_bytes.decode('utf-8'), 
                  "rx": rx_bytes if not to_str else rx_bytes.decode('utf-8'), 
                  "ammount": self.ammount,
-                 "t_balance": self.t_balance}
+                 "t_balance": self.t_balance,
+                 "signature": str(self.signature.hex()) if self.signature != None else ""}
 
         return trans
     
@@ -175,4 +205,5 @@ class Transaction:
         self.rx = deserialize_rsa_public(trans_dict["tx"])
         self.ammount = trans_dict["ammount"]
         self.t_balance = trans_dict["t_balance"]
+        self.signature = trans_dict["signature"]
         

@@ -89,6 +89,8 @@ class CommunicationThread(threading.Thread):
                 eprint(self.v, "COM: record received")
                 i += 1
                 data = json.loads(m[i].strip())
+                print('data')
+                
                 if self.block["index"] == -1:
                     self.block = self.bc.get_new_block(v=self.v)
                 self.block.add_new_record(data)
@@ -97,10 +99,6 @@ class CommunicationThread(threading.Thread):
                 eprint(self.v, "COM: PoW received from node")
                 i += 1
                 data = json.loads(m[i].strip())
-
-                print(data[0])
-                print(data[1])
-                print(data[2])
 
                 b = Block(mapp=data[0])
                 miner_pk = find_miner_pk(b) 
@@ -254,7 +252,8 @@ class PowThread(threading.Thread):
 class Node:
     def __init__(self, id):
         self.id = id
-        self.sk, self.pk = generate_rsa_key_pair()
+        self.sk = load_key(f"keys/node_{id}_key")
+        self.pk = self.sk.public_key()
         if len(sys.argv) > 1:
             if sys.argv[2] == "test":
                 self.comm_thread = CommunicationThread(
