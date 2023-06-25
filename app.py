@@ -3,12 +3,10 @@ from datetime import datetime
 import threading
 from queue import Queue
 import sys
-import random
 import socket
 import select
 import io
 import re
-import hashlib
 import json
 import os
 from data import (
@@ -16,49 +14,52 @@ from data import (
     Block,
     eprint
 )
+from transaction_utils import *
 
 
-def get_hash(data):
-    sha256_hash = hashlib.sha256()
-    sha256_hash.update(data)
-    digest = sha256_hash.digest()
-    return digest
+# def get_hash(data):
+#     sha256_hash = hashlib.sha256()
+#     sha256_hash.update(data)
+#     digest = sha256_hash.digest()
+#     return digest
 
 
-def pow_calc_attempt(block, d):
-    block['timestamp'] = datetime.now().timestamp()
-    b = random.getrandbits(32)
-    b_hex = format(b, f'08x')
-    block['PoW'] = b_hex
-    data = json.dumps(block).encode('utf-8')
+# def pow_calc_attempt(block, d):
+#     block['timestamp'] = datetime.now().timestamp()
+#     b = random.getrandbits(32)
+#     b_hex = format(b, f'08x')
+#     block['PoW'] = b_hex
+#     data = json.dumps(block).encode('utf-8')
 
-    h_data = get_hash(data)
-    token = get_hash(h_data + bytes.fromhex(b_hex))
-    token_num = int.from_bytes(token, "big")
+#     h_data = get_hash(data)
+#     token = get_hash(h_data + bytes.fromhex(b_hex))
+#     token_num = int.from_bytes(token, "big")
 
-    if token_num < ((2**256) / d):
-        return True
-    return False
+#     if token_num < ((2**256) / d):
+#         return True
+#     return False
 
 
-def pow_check(block, d):
-    data = json.dumps(block).encode('utf-8')
-    h_data = get_hash(data)
-    token = get_hash(h_data + bytes.fromhex(block["PoW"]))
-    token_num = int.from_bytes(token, "big")
+# def pow_check(block, d):
+#     data = json.dumps(block).encode('utf-8')
+#     h_data = get_hash(data)
+#     token = get_hash(h_data + bytes.fromhex(block["PoW"]))
+#     token_num = int.from_bytes(token, "big")
 
-    if token_num < ((2**256) / d):
-        return True
-    return False
+#     if token_num < ((2**256) / d):
+#         return True
+#     return False
 
 
 input_queue: 'Queue[Block]' = Queue()
-finished_pow_queue: 'Queue[Block]' = Queue()
+finished_pow_queue: 'Queue[(Block, bytes)]' = Queue()
 pow_received = threading.Event()
 
 
 class CommunicationThread(threading.Thread):
-    def __init__(self, ip: str = "127.0.0.1", port: int = 8081, n: int = 5, d: int = 2000000, test: int = 0, r: int = 0, v: bool = True):
+    def __init__(self, ip: str = "127.0.0.1", port: int = 8081, n: int = 5,\
+                  d: int = 200000, test: int = 0, r: int = 0, v: bool = True,\
+                    sk: rsa.RSAPrivateKey=None, pk: rsa.RSAPublicKey=None):
         threading.Thread.__init__(self)
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.ip = ip
@@ -73,6 +74,8 @@ class CommunicationThread(threading.Thread):
         self.ongoing_test = test
         self.r = r
         self.v = v
+        self.sk = sk
+        self.pk = pk
 
     def process_from_server(self, message: str):
         r = re.sub(r'\n', ' ', message)
@@ -93,8 +96,18 @@ class CommunicationThread(threading.Thread):
                 eprint(self.v, "COM: PoW received from node")
                 i += 1
                 data = json.loads(m[i].strip())
+
+                print(data[0])
+                print(data[1])
+                print(data[2])
+
                 b = Block(mapp=data[0])
-                if not pow_check(b, self.d):
+                miner_pk = find_miner_pk(b) 
+                if (miner_pk == None):
+                    eprint(self.v, "COM: PoW failed validation. Bad miner public key format")
+                    continue
+                signature = bytes.fromhex(data[2])
+                if not pow_check(b, self.d, miner_pk, signature):
                     eprint(self.v, "COM: PoW failed validation")
                     continue
                 eprint(self.v, "COM: PoW passed validation")
@@ -185,8 +198,8 @@ class CommunicationThread(threading.Thread):
 
             if not finished_pow_queue.empty():
                 while not finished_pow_queue.empty():
-                    self.block = finished_pow_queue.get()
-                self.block = self.bc.confirm_block(self.block, v=self.v)
+                    self.block, m_signature = finished_pow_queue.get()
+                self.block = self.bc.confirm_block(self.block, m_signature, v=self.v)
                 if self.block["index"] == -1:
                     message = "PoW " + json.dumps(self.bc.chain[self.bc.index])
                     eprint(self.v, "COM: sending PoW")
@@ -197,12 +210,14 @@ class CommunicationThread(threading.Thread):
 
 
 class PowThread(threading.Thread):
-    def __init__(self, d: int = 2000000, v: bool = True):
+    def __init__(self, d: int = 200000, v: bool = True, sk: rsa.RSAPrivateKey=None, pk: rsa.RSAPublicKey=None):
         threading.Thread.__init__(self)
         self.running = False
         self.block = Block(-1)
         self.d = d
         self.v = v
+        self.sk = sk
+        self.pk = pk
 
     def run(self):
         # input hold curr block for which the pow is calculated at the moment
@@ -221,9 +236,10 @@ class PowThread(threading.Thread):
 
             if self.running:
                 # Make attempt to calculate the pow
-                if pow_calc_attempt(self.block, self.d):
+                success, signature = pow_calc_attempt(self.block, self.d, self.pk, self.sk)
+                if success:
                     eprint(self.v, "POW: PoW calculated")
-                    finished_pow_queue.put(self.block)
+                    finished_pow_queue.put((self.block, signature))
                     self.block = Block(-1)
                     self.running = False
                     # Replace curr block pow field with calculated pow
@@ -236,20 +252,21 @@ class PowThread(threading.Thread):
 class Node:
     def __init__(self, id):
         self.id = id
+        self.sk, self.pk = generate_rsa_key_pair()
         if len(sys.argv) > 1:
             if sys.argv[2] == "test":
                 self.comm_thread = CommunicationThread(
-                    n=int(sys.argv[1]), d=1, test=int(sys.argv[3]), r=int(sys.argv[4]), v=False)
-                self.pow_thread = PowThread(d=1, v=False)
+                    n=int(sys.argv[1]), d=1, test=int(sys.argv[3]), r=int(sys.argv[4]), v=False, sk=self.sk, pk=self.pk)
+                self.pow_thread = PowThread(d=1, v=False, pk=self.pk, sk=self.sk)
             else:
                 t = int(sys.argv[2])
                 s = int(sys.argv[3])
                 d = t * s
-                self.comm_thread = CommunicationThread(n=int(sys.argv[1]), d=d)
-                self.pow_thread = PowThread(d=d)
+                self.comm_thread = CommunicationThread(n=int(sys.argv[1]), d=d, sk=self.sk, pk=self.pk)
+                self.pow_thread = PowThread(d=d, sk=self.sk, pk=self.pk)
         else:
-            self.comm_thread = CommunicationThread()
-            self.pow_thread = PowThread()
+            self.comm_thread = CommunicationThread(sk=self.sk, pk=self.pk)
+            self.pow_thread = PowThread(sk=self.sk, pk=self.pk)
 
     def run(self):
         self.comm_thread.start()

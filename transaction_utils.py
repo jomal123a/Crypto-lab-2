@@ -14,6 +14,17 @@ from data import (
 )
 
 
+def find_miner_pk(block: Block):
+    pk = None
+    for r in block['records']:
+        if not isinstance(r['content'], str):
+            if r['content']['tx'] == 'SERVER':
+                k = r['content']['rx']
+                k = bytes(k, 'utf-8')
+                pk = deserialize_rsa_public(k)
+    return pk
+
+
 def get_hash(data):
     sha256_hash = hashlib.sha256()
     sha256_hash.update(data)
@@ -21,7 +32,7 @@ def get_hash(data):
     return digest
 
 
-def pow_calc_attempt_signed(block: Block, d, pk, sk):
+def pow_calc_attempt(block: Block, d, pk, sk):
     block['timestamp'] = datetime.now().timestamp()
     b = random.getrandbits(32)
     b_hex = format(b, f'08x')
@@ -33,20 +44,24 @@ def pow_calc_attempt_signed(block: Block, d, pk, sk):
     data = json.dumps(block).encode('utf-8')
 
     #h_data = get_hash(data)
+    # now h_data is also digital signature of a miner
     h_data = sign(data, sk)
     token = get_hash(h_data + bytes.fromhex(b_hex))
     token_num = int.from_bytes(token, "big")
 
     if token_num < ((2**256) / d):
-        return True
-    return False
+        return (True, h_data)
+    return (False, None)
 
 
-def pow_check(block, d):
+def pow_check(block: Block, d: int, pk_miner: rsa.RSAPublicKey, signature: bytes):
     data = json.dumps(block).encode('utf-8')
+
     # Check if the digital signature matches
+    if not verify(signature, data, pk_miner):
+        return False
     
-    h_data = get_hash(data)
+    h_data = signature
     token = get_hash(h_data + bytes.fromhex(block["PoW"]))
     token_num = int.from_bytes(token, "big")
 
@@ -71,8 +86,8 @@ def verify(signature: bytes, data: bytes, pk: rsa.RSAPublicKey):
         return False
 
 
-def sign(data: bytes, pk: rsa.RSAPrivateKey) -> bytes:
-    signature = pk.sign(
+def sign(data: bytes, sk: rsa.RSAPrivateKey) -> bytes:
+    signature = sk.sign(
         data,
         padding.PSS(
             mgf=padding.MGF1(hashes.SHA256()),

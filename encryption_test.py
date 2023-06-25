@@ -55,8 +55,15 @@ print("-------------------------------")
 bc = Blockchain(0)
 block = bc.get_new_block()
 status = False
+signature = None
 while not status:
-    status = pow_calc_attempt_signed(block, 20, wallet_r[1], wallet_r[0])
+    resp = pow_calc_attempt(block, 20, wallet_r[1], wallet_r[0])
+    status = resp[0]
+    signature = resp[1]
+
+if pow_check(block, 20, wallet_r[1], signature):
+    print('pow check success!')
+else: print('pow check failure...')
 
 print(block)
 
