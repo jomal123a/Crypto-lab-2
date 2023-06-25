@@ -2,7 +2,7 @@ from datetime import datetime
 from hashlib import sha256
 import json
 import sys
-from math import sqrt, ceil
+from math import sqrt, ceil, log, floor
 import numpy.random as rand
 
 def eprint(v: bool = True, *args, **kwargs):
@@ -76,6 +76,7 @@ def harm(n, k):
 class Blockchain():
     def __init__(self, n: int):
         self.n = n
+        self.logn = int(floor(log(n) + 0.5))
         self.index = 0
         self.chain = {0: [Block(0), '0']}
         self.chain[0][0]["timestamp"] = datetime.now().timestamp()
@@ -93,7 +94,7 @@ class Blockchain():
             xs.append(sha256((xs[j - 1] + str(j)).encode('utf-8')).hexdigest())
         
         rand.seed(sum(map(lambda x: int(x, 16), xs)) % 2 ** 32)
-        dist = [1/(pow(i - j - 1, self.n) * harm(i, self.n)) for j in range(0, i - 1)]
+        dist = [1/(pow(i - j - 1, 1) * harm(i - 1, 1)) for j in range(0, i - 1)]
         indices = rand.choice(range(i - 1), size=self.n, replace=False, p=dist)
 
         return [(int(j), self.chain[j][1]) for j in indices]
