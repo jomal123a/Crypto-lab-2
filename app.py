@@ -89,7 +89,7 @@ class CommunicationThread(threading.Thread):
                 eprint(self.v, "COM: record received")
                 i += 1
                 data = json.loads(m[i].strip())
-                print('data')
+                # print('data')
                 
                 if self.block["index"] == -1:
                     self.block = self.bc.get_new_block(v=self.v)
@@ -131,6 +131,13 @@ class CommunicationThread(threading.Thread):
                     input_queue.put(self.block)
                 else:
                     self.block = Block(-1)
+            elif command.startswith("===balance==="):
+                eprint(self.v, "COM: balance check request")
+                l = command.split("###")
+                idd = l[1]
+                pk = bytes.fromhex(l[2])
+                balance = self.bc.get_balance(pk)[1]
+                self.server.send(f"===balance=== {idd} {balance}".encode('utf-8'))
 
     def process_from_stdin(self, message: str):
         if message.startswith("record "):
@@ -213,8 +220,8 @@ class PowThread(threading.Thread):
         threading.Thread.__init__(self)
         self.running = False
         self.block = Block(-1)
-        self.d = d
-        # self.d = 1000
+        # self.d = d
+        self.d = 1000
         self.v = v
         self.sk = sk
         self.pk = pk
@@ -254,7 +261,7 @@ class Node:
         self.id = id
         self.sk = load_key(f"keys/node_{id}_key")
         self.pk = self.sk.public_key()
-        if len(sys.argv) > 1:
+        if len(sys.argv) > 2:
             if sys.argv[2] == "test":
                 self.comm_thread = CommunicationThread(
                     n=int(sys.argv[1]), d=1, test=int(sys.argv[3]), r=int(sys.argv[4]), v=False, sk=self.sk, pk=self.pk)
@@ -277,5 +284,5 @@ class Node:
         self.pow_thread.join()
 
 
-node = Node(0)
+node = Node(int(sys.argv[1]))
 node.run()

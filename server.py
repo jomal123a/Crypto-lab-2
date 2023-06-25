@@ -27,9 +27,23 @@ def clientthread(conn, my_id):
                     print("<" + my_idd + "> " + message, end='')
                     if message.startswith("record "):
                         message = "===record=== " + message[7:]
+                        broadcast(message.encode("utf8"), conn)
                     elif message.startswith("PoW "):
                         message = "===PoW=== " + message[4:]
-                    broadcast(message.encode("utf8"), conn)
+                        broadcast(message.encode("utf8"), conn)
+                    elif message.startswith("===balance=== "):
+                        print()
+                        l = message.split()
+                        idd_ = l[1]
+                        balance = l[2]
+                        message = f"{balance}"
+                        for client, idd in clients.items():
+                            if idd == int(idd_):
+                                try:
+                                    client.send(message.encode('utf-8'))
+                                    break
+                                except:
+                                    remove(client, clients[client])
                 else:
                     remove(conn, my_idd)
                     return
@@ -42,10 +56,19 @@ def clientthread(conn, my_id):
             try:
                 message = conn.recv(2048).decode("utf8")
                 if message and message != '\n':
-                    print("<" + my_idd + "> " + message, end='')
+                    print("<" + my_idd + "> " + message)
                     if message.startswith("record "):
                         message = "===record=== " + message[7:]
                         broadcast(message.encode("utf8"), conn)
+                    elif message.startswith("balance "):
+                        message = "===balance===###" + str(my_id) + "###" + message[8:]
+                        for client, idd in clients.items():
+                            if idd in nodes:
+                                try:
+                                    client.send(message.encode('utf-8'))
+                                    break
+                                except:
+                                    remove(client, clients[client])
                 else:
                     remove(conn, my_idd)
                     return

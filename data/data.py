@@ -149,12 +149,18 @@ class Blockchain():
         return Block(-1)
     
     def get_balance(self, pk: str):
-        #TODO
-        i = len(self.chain)
+        pk = pk.decode('utf-8')
+        i = len(self.chain) - 1
+        balance = 0.0
+        j = 0
         while i > 0:
             b = self.chain[i][0]
-            for j, r in enumerate(b["records"]):
+            for r in b["records"]:
                 if r['content']['tx'] == pk:
-                    return r['content']['t_balance']
+                    balance -= float(r['content']['ammount'])
+                    j += 1
+                if r['content']['rx'] == pk:
+                    balance += float(r['content']['ammount'])
+                    j += 1
             i -= 1
-        return 0.0
+        return (j != 0, balance)
