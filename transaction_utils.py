@@ -2,6 +2,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import serialization
+from cryptography.exceptions import InvalidSignature
 import json
 import string
 import hashlib
@@ -20,7 +21,7 @@ def get_hash(data):
     return digest
 
 
-def pow_calc_attempt(block: Block, d, pk, sk, server_pk):
+def pow_calc_attempt_signed(block: Block, d, pk, sk):
     block['timestamp'] = datetime.now().timestamp()
     b = random.getrandbits(32)
     b_hex = format(b, f'08x')
@@ -28,10 +29,6 @@ def pow_calc_attempt(block: Block, d, pk, sk, server_pk):
     t = Transaction(None, pk, 1.0, 0, True)
     block['PoW'] = b_hex
     block.add_new_prize_record(t.to_dict(to_str=True))
-
-    print('------------------')
-    print(block)
-    print('------------------')
 
     data = json.dumps(block).encode('utf-8')
 
@@ -47,6 +44,8 @@ def pow_calc_attempt(block: Block, d, pk, sk, server_pk):
 
 def pow_check(block, d):
     data = json.dumps(block).encode('utf-8')
+    # Check if the digital signature matches
+    
     h_data = get_hash(data)
     token = get_hash(h_data + bytes.fromhex(block["PoW"]))
     token_num = int.from_bytes(token, "big")
@@ -54,6 +53,22 @@ def pow_check(block, d):
     if token_num < ((2**256) / d):
         return True
     return False
+
+
+def verify(signature: bytes, data: bytes, pk: rsa.RSAPublicKey):
+    try:
+        pk.verify(
+            signature,
+            data,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256()
+        )
+        return True
+    except InvalidSignature:
+        return False
 
 
 def sign(data: bytes, pk: rsa.RSAPrivateKey) -> bytes:
