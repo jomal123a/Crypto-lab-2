@@ -139,11 +139,22 @@ class Blockchain():
         block["extra_hashes"] = self.extra_hashes(self.index + 1)
         return block
 
-    def confirm_block(self, block: Block, v: bool = True):
+    def confirm_block(self, block: Block, sig: bytes, v: bool = True):
         if self.index + 1 != block["index"]:
             return Block(-2)
         self.index += 1
         eprint(v, f"confirming block {self.index}")
         self.chain[self.index] = [block, sha256(
-            json.dumps(block).encode('utf-8')).hexdigest()]
+            json.dumps(block).encode('utf-8')).hexdigest(), sig.hex()]
         return Block(-1)
+    
+    def get_balance(self, pk: str):
+        #TODO
+        i = len(self.chain)
+        while i > 0:
+            b = self.chain[i][0]
+            for j, r in enumerate(b["records"]):
+                if r['content']['tx'] == pk:
+                    return r['content']['t_balance']
+            i -= 1
+        return 0.0

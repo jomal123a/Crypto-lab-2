@@ -76,6 +76,7 @@ class CommunicationThread(threading.Thread):
         self.v = v
         self.sk = sk
         self.pk = pk
+        self.server.send('===node==='.encode('utf-8'))
 
     def process_from_server(self, message: str):
         r = re.sub(r'\n', ' ', message)
@@ -85,9 +86,9 @@ class CommunicationThread(threading.Thread):
         for i in range(len(m)):
             command = m[i]
             if command.startswith("===record==="):
-                eprint(self.v, "COM: record received from node")
+                eprint(self.v, "COM: record received")
                 i += 1
-                data = m[i].strip()
+                data = json.loads(m[i].strip())
                 if self.block["index"] == -1:
                     self.block = self.bc.get_new_block(v=self.v)
                 self.block.add_new_record(data)
@@ -141,7 +142,7 @@ class CommunicationThread(threading.Thread):
             if data != '':
                 if self.block["index"] == -1:
                     self.block = self.bc.get_new_block(v=self.v)
-                j = self.block.add_new_record(data)
+                j = self.block.add_new_record(json.loads(data))
                 if self.v:
                     print(f"(block {self.bc.index + 1}, record {j})")
                 input_queue.put(self.block)
@@ -215,6 +216,7 @@ class PowThread(threading.Thread):
         self.running = False
         self.block = Block(-1)
         self.d = d
+        # self.d = 1000
         self.v = v
         self.sk = sk
         self.pk = pk
